@@ -444,6 +444,10 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 - WireGuard for the excellent VPN protocol
 - [cmj2002/warp-docker](https://github.com/cmj2002/warp-docker) for inspiration
 
+### Development Notes
+
+Documentation, project structure, and open source best practices were developed with assistance from Claude (Anthropic AI). All code was written, tested, and validated by the project maintainer.
+
 ## Support
 
 For issues and questions:
