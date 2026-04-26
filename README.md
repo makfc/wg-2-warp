@@ -30,13 +30,14 @@ This project uses two Docker containers connected via a private network:
 
 ```
 [WireGuard Clients] 
-        ↓ (UDP 51822)
+        ↓ (UDP 51822, IPv4 endpoint with IPv4/IPv6 tunnel traffic)
 [WireGuard Container] → [Private Network] → [WARP Container] → Internet (WARP IP)
 ```
 
 **Key features:**
 
 - **Two-container design:** WireGuard and WARP in separate containers
+- **Dual-stack routing:** Routes both IPv4 and IPv6 WireGuard client traffic through WARP
 - **Policy-based routing:** Uses Linux routing tables to direct traffic through WARP
 - **Fail-secure:** Blocks direct internet access if WARP is down
 - **TCPMSS clamping:** Prevents MTU issues and connection hangs
@@ -90,14 +91,14 @@ Edit `wireguard/wg1.conf` with your server and peer details:
 
 ```ini
 [Interface]
-Address = 10.13.13.1/24
+Address = 10.13.13.1/24,fd42:42:42::1/64
 SaveConfig = false
 ListenPort = 51822
 PrivateKey = YOUR_SERVER_PRIVATE_KEY
 
 [Peer]
 PublicKey = YOUR_CLIENT_PUBLIC_KEY
-AllowedIPs = 10.13.13.2/32
+AllowedIPs = 10.13.13.2/32,fd42:42:42::2/128
 PersistentKeepalive = 0
 ```
 
@@ -147,8 +148,8 @@ Configure your WireGuard client to connect to your VPS:
 ```ini
 [Interface]
 PrivateKey = YOUR_CLIENT_PRIVATE_KEY
-Address = 10.13.13.2/32
-DNS = 1.1.1.1
+Address = 10.13.13.2/32,fd42:42:42::2/128
+DNS = 1.1.1.1,2606:4700:4700::1111
 MTU = 1280  # Conservative setting to avoid fragmentation issues
 
 [Peer]
@@ -164,6 +165,8 @@ Replace:
 - `YOUR_SERVER_PUBLIC_KEY` with your server's public key  
 - `YOUR_VPS_IP` with your VPS IP address
 
+The WireGuard endpoint can be an IPv4 address while still carrying IPv6 traffic inside the tunnel. Use `AllowedIPs = 0.0.0.0/0, ::/0` when you want both IPv4 and IPv6 client traffic to route through WARP.
+
 ## Testing
 
 After connecting your WireGuard client, verify the setup:
@@ -172,9 +175,10 @@ After connecting your WireGuard client, verify the setup:
 
 ```bash
 curl https://icanhazip.com
+curl -6 https://icanhazip.com
 ```
 
-You should see an IP in the 104.x.x.x range (Cloudflare WARP).
+The IPv4 result should be in the 104.x.x.x range (Cloudflare WARP), and the IPv6 result should be a Cloudflare/WARP IPv6 address when IPv6 is enabled in your client profile.
 
 **Check detailed connection info:**
 
@@ -232,7 +236,9 @@ docker exec warp-server warp-cli --accept-tos status
 
 ```bash
 docker exec wireguard-server ip route show table 200
+docker exec wireguard-server ip -6 route show table 200
 docker exec wireguard-server ip rule show
+docker exec wireguard-server ip -6 rule show
 ```
 
 **Check firewall rules:**
@@ -245,7 +251,7 @@ docker exec wireguard-server iptables -L FORWARD -n -v
 
 ### Network Subnet
 
-The default private network uses `172.22.0.0/16`. To change:
+The default private network uses `172.22.0.0/16` for IPv4 and `fd00:172:22::/64` for IPv6. To change:
 
 Edit `docker-compose.yml`:
 
@@ -256,6 +262,7 @@ networks:
     ipam:
       config:
         - subnet: 172.25.0.0/16  # Your custom subnet
+        - subnet: fd00:172:25::/64  # Your custom IPv6 subnet
 ```
 
 Update IP addresses in:
@@ -265,13 +272,15 @@ Update IP addresses in:
 
 ### WireGuard Network
 
-The default WireGuard network is `10.13.13.0/24`. To change:
+The default WireGuard networks are `10.13.13.0/24` for IPv4 and `fd42:42:42::/64` for IPv6. To change:
 
 Edit `wireguard/wg1.conf` and update routing rules in `entrypoint-wireguard.sh`:
 
 ```bash
 ip rule add from YOUR_NETWORK/24 table 200 priority 100
+ip -6 rule add from YOUR_IPV6_NETWORK/64 table 200 priority 100
 iptables -t nat -A POSTROUTING -s YOUR_NETWORK/24 -j MASQUERADE
+ip6tables -t nat -A POSTROUTING -s YOUR_IPV6_NETWORK/64 -j MASQUERADE
 ```
 
 ### Adding More Peers
@@ -281,7 +290,7 @@ Add additional peer blocks to `wireguard/wg1.conf`:
 ```ini
 [Peer]
 PublicKey = ANOTHER_CLIENT_PUBLIC_KEY
-AllowedIPs = 10.13.13.3/32
+AllowedIPs = 10.13.13.3/32,fd42:42:42::3/128
 PersistentKeepalive = 0
 ```
 
@@ -349,17 +358,19 @@ docker exec wireguard-server wg show
 
 ```bash
 docker exec wireguard-server ip route show table 200
+docker exec wireguard-server ip -6 route show table 200
 ```
 
-Should show: `default via 172.22.0.10`
+Should show: `default via 172.22.0.10` and `default via fd00:172:22::10`
 
 **Verify policy routing:**
 
 ```bash
 docker exec wireguard-server ip rule show
+docker exec wireguard-server ip -6 rule show
 ```
 
-Should show: `from 10.13.13.0/24 lookup 200`
+Should show: `from 10.13.13.0/24 lookup 200` and `from fd42:42:42::/64 lookup 200`
 
 **Test WARP connectivity from WireGuard container:**
 
@@ -383,12 +394,13 @@ docker exec wireguard-server ip link show wg1
 ### Routing Flow
 
 1. Client connects to WireGuard server (10.13.13.1) on port 51822
-2. WireGuard container receives traffic on wg1 interface
-3. Policy routing rule matches source 10.13.13.0/24
-4. Traffic is sent to routing table 200
-5. Table 200 routes via 172.22.0.10 (WARP container)
-6. WARP container NATs traffic through CloudflareWARP interface
-7. Traffic exits with WARP IP address (104.x.x.x)
+2. The client may use an IPv4 endpoint while carrying IPv4 and IPv6 tunnel traffic
+3. WireGuard container receives traffic on wg1 interface
+4. Policy routing rules match source `10.13.13.0/24` and `fd42:42:42::/64`
+5. Traffic is sent to routing table 200
+6. Table 200 routes via `172.22.0.10` or `fd00:172:22::10` (WARP container)
+7. WARP container NATs traffic through CloudflareWARP interface
+8. Traffic exits with WARP IPv4 or IPv6 address
 
 ### Security Features
 
@@ -412,6 +424,7 @@ Both containers have health checks that verify:
 
 - Tested on x86_64 Ubuntu 22.04/24.04 and Oracle Cloud Infrastructure ARM64
 - ARM64 builds use Ubuntu 24.04 (`noble`) packages for Cloudflare WARP
+- IPv6 routing has been tested with an IPv4 WireGuard endpoint and IPv6 WARP egress
 - Other distributions and VPS providers may work but are untested
 
 **Network restrictions:**
@@ -437,7 +450,7 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 - Testing on different Linux distributions
 - Testing on different VPS providers
 - Testing on additional ARM64/ARM hosts
-- IPv6 support improvements
+- IPv6 support improvements and provider compatibility reports
 - Documentation improvements
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

@@ -14,7 +14,7 @@ wg-2-warp 會在 VPS 上以 Docker 執行 WireGuard 伺服器，並在另一個 
 
 - WireGuard 伺服器在 Docker 容器中執行
 - Cloudflare WARP 用戶端在獨立 Docker 容器中執行
-- 來自 WireGuard 用戶端的流量透過 policy routing 送往 WARP 容器
+- 來自 WireGuard 用戶端的 IPv4 與 IPv6 流量透過 policy routing 送往 WARP 容器
 - 對外 IP 會顯示為 Cloudflare WARP IP，通常是 `104.x.x.x`
 - Fail-secure 防火牆規則會阻止用戶端流量直接從 VPS public interface 對外連線
 - TCPMSS clamping 可減少 MTU 問題與連線卡住的情況
@@ -23,7 +23,7 @@ wg-2-warp 會在 VPS 上以 Docker 執行 WireGuard 伺服器，並在另一個 
 
 ```text
 [WireGuard Clients]
-        -> UDP 51822
+        -> UDP 51822，IPv4 endpoint 也可以承載 IPv4/IPv6 tunnel traffic
 [WireGuard Container] -> [Private Docker Network] -> [WARP Container] -> Internet
 ```
 
@@ -71,14 +71,14 @@ cp wireguard/wg1.conf.example wireguard/wg1.conf
 
 ```ini
 [Interface]
-Address = 10.13.13.1/24
+Address = 10.13.13.1/24,fd42:42:42::1/64
 SaveConfig = false
 ListenPort = 51822
 PrivateKey = YOUR_SERVER_PRIVATE_KEY
 
 [Peer]
 PublicKey = YOUR_CLIENT_PUBLIC_KEY
-AllowedIPs = 10.13.13.2/32
+AllowedIPs = 10.13.13.2/32,fd42:42:42::2/128
 PersistentKeepalive = 0
 ```
 
@@ -119,8 +119,8 @@ docker compose logs
 ```ini
 [Interface]
 PrivateKey = YOUR_CLIENT_PRIVATE_KEY
-Address = 10.13.13.2/32
-DNS = 1.1.1.1
+Address = 10.13.13.2/32,fd42:42:42::2/128
+DNS = 1.1.1.1,2606:4700:4700::1111
 MTU = 1280
 
 [Peer]
@@ -132,12 +132,15 @@ PersistentKeepalive = 25
 
 `AllowedIPs = 0.0.0.0/0, ::/0` 代表用戶端會將所有 IPv4/IPv6 流量送入 VPN。
 
+WireGuard endpoint 可以是 IPv4，例如 `YOUR_VPS_IP:51822`，但 tunnel 內仍可承載 IPv6，並透過 WARP IPv6 對外連線。
+
 ## 測試
 
 連上 WireGuard 後，檢查對外 IP：
 
 ```bash
 curl https://icanhazip.com
+curl -6 https://icanhazip.com
 ```
 
 檢查詳細 WARP 狀態：
@@ -167,18 +170,20 @@ docker compose up -d
 docker exec wireguard-server wg show
 docker exec warp-server warp-cli --accept-tos status
 docker exec wireguard-server ip route show table 200
+docker exec wireguard-server ip -6 route show table 200
 docker exec wireguard-server ip rule show
+docker exec wireguard-server ip -6 rule show
 ```
 
 ## 設定選項
 
 ### Docker private network
 
-預設 Docker private network 為 `172.22.0.0/16`。若要修改，請更新 `docker-compose.yml` 中的 subnet 與 container IP，並同步更新 `entrypoint-wireguard.sh`。
+預設 Docker private network 為 IPv4 `172.22.0.0/16` 與 IPv6 `fd00:172:22::/64`。若要修改，請更新 `docker-compose.yml` 中的 subnet 與 container IP，並同步更新 `entrypoint-wireguard.sh`。
 
 ### WireGuard network
 
-預設 WireGuard network 為 `10.13.13.0/24`。若要修改，請同步更新：
+預設 WireGuard network 為 IPv4 `10.13.13.0/24` 與 IPv6 `fd42:42:42::/64`。若要修改，請同步更新：
 
 - `wireguard/wg1.conf`
 - `entrypoint-wireguard.sh` 中的 `ip rule` 與 NAT rule
@@ -190,7 +195,7 @@ docker exec wireguard-server ip rule show
 ```ini
 [Peer]
 PublicKey = ANOTHER_CLIENT_PUBLIC_KEY
-AllowedIPs = 10.13.13.3/32
+AllowedIPs = 10.13.13.3/32,fd42:42:42::3/128
 PersistentKeepalive = 0
 ```
 
@@ -249,14 +254,17 @@ docker exec wireguard-server wg show
 
 ```bash
 docker exec wireguard-server ip route show table 200
+docker exec wireguard-server ip -6 route show table 200
 docker exec wireguard-server ip rule show
+docker exec wireguard-server ip -6 rule show
 ```
 
-應看到 default route 經由 `172.22.0.10`，以及 `from 10.13.13.0/24 lookup 200`。
+應看到 default route 經由 `172.22.0.10` / `fd00:172:22::10`，以及 `from 10.13.13.0/24 lookup 200` / `from fd42:42:42::/64 lookup 200`。
 
 ## 限制
 
 - 已測試 x86_64 Ubuntu 22.04/24.04 與 Oracle Cloud Infrastructure ARM64
+- 已測試使用 IPv4 WireGuard endpoint，並透過 WARP 進行 IPv6 對外連線
 - 其他 Linux 發行版或 VPS provider 可能可用，但尚未完整測試
 - 部分 provider 可能會限制 WARP 流量
 - WireGuard 加上 WARP 會帶來額外延遲

@@ -1,5 +1,5 @@
 [Interface]
-Address = 10.13.13.1/24
+Address = 10.13.13.1/24,fd42:42:42::1/64
 SaveConfig = false
 ListenPort = 51822
 PrivateKey = <SERVER PRIVATE KEY>
@@ -7,12 +7,12 @@ PrivateKey = <SERVER PRIVATE KEY>
 # 1st peer
 [Peer]
 PublicKey = <PEER PUBLIC KEY>
-AllowedIPs = 10.13.13.2/32
+AllowedIPs = 10.13.13.2/32,fd42:42:42::2/128
 PersistentKeepalive = 0
 ################################
 # 2nd peer
 [Peer]
 PublicKey = <PEER PUBLIC KEY>
-AllowedIPs = 10.13.13.3/32
+AllowedIPs = 10.13.13.3/32,fd42:42:42::3/128
 PersistentKeepalive = 0
 
