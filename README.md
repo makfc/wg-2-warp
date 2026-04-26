@@ -2,6 +2,8 @@
 
 **Route WireGuard VPN traffic through Cloudflare WARP for a clean IP address**
 
+**Translations:** [香港廣東話](README.zh-HK.md) | [正體中文](README.zh-TW.md)
+
 ## Overview
 
 wg-2-warp combines a WireGuard VPN server with Cloudflare WARP so that your VPN traffic exits through a Cloudflare WARP IP address rather than a typical datacenter IP. This helps you avoid the blocks and restrictions many websites apply to VPN traffic originating from datacenters. It uses the free tier of Cloudflare WARP and automatically retrieves the required registration file, so you don’t need to provide any personal information to activate the WARP client. The only information it learns is your VPN's IP address..
@@ -44,10 +46,16 @@ This project uses two Docker containers connected via a private network:
 
 **System requirements:**
 
-- x86_64 Linux system (tested on Ubuntu 22.04 and 24.04)
+- x86_64 or ARM64 Linux system (tested on Ubuntu 22.04/24.04 and Oracle Cloud Infrastructure ARM64)
 - Docker and Docker Compose installed
 - Root or sudo access
 - Free UDP port 51822 for WireGuard
+
+**Platform notes:**
+
+- Oracle Cloud Infrastructure ARM64 instances, including Ampere A1 shapes, can build the WARP container natively.
+- The WARP image uses Ubuntu 24.04 (`noble`) packages so Cloudflare's native package for the host architecture is selected automatically.
+- No amd64 emulation or multi-architecture Docker setup is required for ARM64 hosts.
 
 **Network requirements:**
 
@@ -402,9 +410,9 @@ Both containers have health checks that verify:
 
 **Platform support:**
 
-- Tested only on x86_64 Linux
-- Ubuntu 22.04 and 24.04 confirmed working
-- Other distributions may work but are untested
+- Tested on x86_64 Ubuntu 22.04/24.04 and Oracle Cloud Infrastructure ARM64
+- ARM64 builds use Ubuntu 24.04 (`noble`) packages for Cloudflare WARP
+- Other distributions and VPS providers may work but are untested
 
 **Network restrictions:**
 
@@ -428,7 +436,7 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 - Testing on different Linux distributions
 - Testing on different VPS providers
-- ARM64/ARM support
+- Testing on additional ARM64/ARM hosts
 - IPv6 support improvements
 - Documentation improvements
 
